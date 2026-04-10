@@ -2692,3 +2692,9 @@
   cursor: pointer;
 }
 
+
+/* ===== PROFILE SONG BAR ANIMATION ===== */
+@keyframes soundBar {
+  from { transform: scaleY(0.4); }
+  to { transform: scaleY(1.6); }
+}
