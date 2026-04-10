@@ -3,9 +3,11 @@
   publish = "dist/public"
 
 [build.environment]
-  BASE_PATH = "/"
-  PORT      = "3000"
-  NODE_ENV  = "production"
+  BASE_PATH    = "/"
+  PORT         = "3000"
+  NODE_ENV     = "production"
+  # Set VITE_API_URL in Netlify dashboard to your deployed API server URL
+  # e.g. https://your-api.replit.app/api
 
 [[redirects]]
   from   = "/*"
