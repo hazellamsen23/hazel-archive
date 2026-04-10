@@ -10,8 +10,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, logout } = useAuth();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const songAudioRef = useRef<HTMLAudioElement>(null);
+  const songTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [muted, setMuted] = useState(false);
   const [musicStarted, setMusicStarted] = useState(false);
+  const [songPlaying, setSongPlaying] = useState(false);
   const sparklesRef = useRef<any[]>([]);
   const animFrameRef = useRef<number>(0);
 
@@ -63,6 +66,52 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   useEffect(() => {
     if (audioRef.current) audioRef.current.muted = muted;
   }, [muted]);
+
+  useEffect(() => {
+    const audio = songAudioRef.current;
+    const song = p?.profileSong as any;
+    if (!audio || !song?.url) return;
+
+    const startTime = song.startTime ?? 0;
+    const endTime = song.endTime ?? startTime + 60;
+
+    audio.src = song.url;
+    audio.currentTime = startTime;
+
+    const tryPlay = () => {
+      audio.play().then(() => setSongPlaying(true)).catch(() => {});
+    };
+
+    const handleTimeUpdate = () => {
+      if (audio.currentTime >= endTime) {
+        audio.pause();
+        setSongPlaying(false);
+      }
+    };
+
+    const handleEnded = () => setSongPlaying(false);
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("ended", handleEnded);
+
+    const onInteract = () => {
+      tryPlay();
+      document.removeEventListener("click", onInteract);
+      document.removeEventListener("keydown", onInteract);
+    };
+
+    document.addEventListener("click", onInteract, { once: true });
+    document.addEventListener("keydown", onInteract, { once: true });
+
+    return () => {
+      audio.pause();
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("ended", handleEnded);
+      document.removeEventListener("click", onInteract);
+      document.removeEventListener("keydown", onInteract);
+      setSongPlaying(false);
+    };
+  }, [(p?.profileSong as any)?.url, (p?.profileSong as any)?.startTime, (p?.profileSong as any)?.endTime]);
 
   const drawGlitter = useCallback(() => {
     const canvas = canvasRef.current;
@@ -158,6 +207,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       />
 
       <audio ref={audioRef} loop style={{ display: "none" }} />
+      <audio ref={songAudioRef} style={{ display: "none" }} />
 
       {p?.bgMusicUrl && (
         <button
@@ -167,6 +217,46 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         >
           {muted ? "🔇" : "🎵"}
         </button>
+      )}
+
+      {(p?.profileSong as any)?.url && (
+        <div
+          style={{
+            position: "fixed", bottom: "12px", right: "12px", zIndex: 1000,
+            background: "rgba(255,240,248,0.95)", border: "1px solid #ffb3d9",
+            borderRadius: "20px", padding: "6px 14px", fontSize: "12px",
+            color: "#cc0066", boxShadow: "0 2px 8px rgba(204,0,102,0.15)",
+            display: "flex", alignItems: "center", gap: "6px", cursor: "pointer",
+            userSelect: "none",
+          }}
+          onClick={() => {
+            const audio = songAudioRef.current;
+            const song = p?.profileSong as any;
+            if (!audio) return;
+            if (songPlaying) {
+              audio.pause();
+              setSongPlaying(false);
+            } else {
+              audio.currentTime = song?.startTime ?? 0;
+              audio.play().then(() => setSongPlaying(true)).catch(() => {});
+            }
+          }}
+          title={songPlaying ? "Pause profile song" : "Play profile song"}
+        >
+          <span style={{ fontSize: "14px" }}>{songPlaying ? "🎵" : "▶"}</span>
+          <span>{(p?.profileSong as any)?.title || "Profile Song"}</span>
+          {songPlaying && (
+            <span style={{ display: "flex", gap: "2px", alignItems: "flex-end", height: "14px" }}>
+              {[3,5,4,6,3].map((h, i) => (
+                <span key={i} style={{
+                  display: "inline-block", width: "2px", height: `${h}px`,
+                  background: "#cc0066", borderRadius: "1px",
+                  animation: `soundBar 0.${4+i}s ease-in-out infinite alternate`,
+                }} />
+              ))}
+            </span>
+          )}
+        </div>
       )}
 
       <div className="pink-header">
