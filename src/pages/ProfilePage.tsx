@@ -43,6 +43,9 @@ const ProfilePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<"profile"|"appearance"|"music"|"friends"|"about">("profile");
+  const [songDuration, setSongDuration] = useState<number>(0);
+  const [songLoading, setSongLoading] = useState(false);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
 
   const [draft, setDraft] = useState<Partial<UserProfile>>({});
 
@@ -129,14 +132,52 @@ const ProfilePage: React.FC = () => {
     set({ funFacts: facts });
   };
 
+  const loadSongDuration = (url: string) => {
+    if (!url) return;
+    setSongLoading(true);
+    const tempAudio = new Audio(url);
+    tempAudio.crossOrigin = "anonymous";
+    tempAudio.addEventListener("loadedmetadata", () => {
+      const dur = Math.floor(tempAudio.duration);
+      setSongDuration(isFinite(dur) ? dur : 0);
+      setSongLoading(false);
+    });
+    tempAudio.addEventListener("error", () => {
+      setSongDuration(0);
+      setSongLoading(false);
+    });
+  };
+
+  const fmtTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
   const previewSong = () => {
     const audio = songPreviewRef.current;
     if (!audio) return;
-    const songUrl = get("profileSong")?.url || "";
-    const start = get("profileSong")?.startTime ?? 0;
+    const song = get("profileSong") as any;
+    const songUrl = song?.url || "";
+    const start = song?.startTime ?? 0;
+    const end = song?.endTime ?? Math.min(start + 60, songDuration || start + 60);
+    if (previewPlaying) {
+      audio.pause();
+      setPreviewPlaying(false);
+      return;
+    }
     audio.src = songUrl;
     audio.currentTime = start;
-    audio.play();
+    audio.play().then(() => setPreviewPlaying(true)).catch(() => {});
+    const stopAt = () => {
+      if (audio.currentTime >= end) {
+        audio.pause();
+        setPreviewPlaying(false);
+        audio.removeEventListener("timeupdate", stopAt);
+      }
+    };
+    audio.addEventListener("timeupdate", stopAt);
+    audio.addEventListener("ended", () => setPreviewPlaying(false), { once: true });
   };
 
   const tabs = [
@@ -308,53 +349,131 @@ const ProfilePage: React.FC = () => {
 
               <div className="music-section-header">🎵 Profile Song</div>
               <small style={{ color: "#999", display: "block", marginBottom: "8px" }}>
-                Your profile song plays when people visit. Max 20 seconds, pick your start time like an Instagram story!
+                Your profile song plays when people visit your profile. Pick a clip of up to 1 minute from anywhere in the song.
               </small>
 
-              <label>Song URL (YouTube, SoundCloud, direct MP3, etc.)</label>
-              <input
-                placeholder="https://..."
-                value={get("profileSong")?.url || ""}
-                onChange={(e) => set({ profileSong: { ...((get("profileSong") as any) || {}), url: e.target.value } })}
-              />
+              <label>Song URL (direct MP3/audio link)</label>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  placeholder="https://example.com/song.mp3"
+                  value={(get("profileSong") as any)?.url || ""}
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    set({ profileSong: { ...((get("profileSong") as any) || {}), url } });
+                    setSongDuration(0);
+                    if (url) loadSongDuration(url);
+                  }}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="upload-btn"
+                  onClick={() => {
+                    const url = (get("profileSong") as any)?.url || "";
+                    if (url) loadSongDuration(url);
+                  }}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  {songLoading ? "Loading…" : "🔍 Detect Duration"}
+                </button>
+              </div>
+
+              {songDuration > 0 && (
+                <small style={{ color: "#cc0066", display: "block", marginBottom: "4px" }}>
+                  Song duration detected: {fmtTime(songDuration)}
+                </small>
+              )}
 
               <label>Song Title</label>
               <input
                 placeholder="e.g. The Night We Met - Lord Huron"
-                value={get("profileSong")?.title || ""}
+                value={(get("profileSong") as any)?.title || ""}
                 onChange={(e) => set({ profileSong: { ...((get("profileSong") as any) || {}), title: e.target.value } })}
               />
 
-              <div className="song-time-row">
-                <div>
-                  <label>Start Time (seconds)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={get("profileSong")?.startTime ?? 0}
-                    onChange={(e) => set({ profileSong: { ...((get("profileSong") as any) || {}), startTime: Number(e.target.value) } })}
-                  />
+              <div style={{ background: "#fff0f8", border: "1px solid #ffb3d9", borderRadius: "8px", padding: "12px", marginTop: "8px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontWeight: "bold", color: "#cc0066", fontSize: "13px" }}>🎚️ Clip Selector</span>
+                  <span style={{ fontSize: "12px", color: "#cc0066" }}>
+                    Clip: {fmtTime((get("profileSong") as any)?.startTime ?? 0)} → {fmtTime((get("profileSong") as any)?.endTime ?? Math.min(60, songDuration || 60))}
+                    &nbsp;({Math.max(0, ((get("profileSong") as any)?.endTime ?? 60) - ((get("profileSong") as any)?.startTime ?? 0))}s / max 60s)
+                  </span>
                 </div>
-                <div>
-                  <label>End Time (seconds, max +20)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={get("profileSong")?.endTime ?? 20}
-                    onChange={(e) => {
-                      const start = get("profileSong")?.startTime ?? 0;
-                      const end = Math.min(Number(e.target.value), start + 20);
-                      set({ profileSong: { ...((get("profileSong") as any) || {}), endTime: end } });
-                    }}
-                  />
-                </div>
-                <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button type="button" onClick={previewSong} className="upload-btn">▶ Preview</button>
+
+                <label style={{ fontSize: "12px", color: "#666", marginBottom: "4px", display: "block" }}>
+                  Start Time: {fmtTime((get("profileSong") as any)?.startTime ?? 0)}
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max={songDuration > 0 ? songDuration - 1 : 600}
+                  step="1"
+                  value={(get("profileSong") as any)?.startTime ?? 0}
+                  onChange={(e) => {
+                    const newStart = Number(e.target.value);
+                    const curEnd = (get("profileSong") as any)?.endTime ?? newStart + 60;
+                    const newEnd = Math.min(curEnd, newStart + 60, songDuration || newStart + 60);
+                    set({ profileSong: { ...((get("profileSong") as any) || {}), startTime: newStart, endTime: Math.max(newEnd, newStart + 1) } });
+                  }}
+                  style={{ width: "100%", accentColor: "#cc0066" }}
+                />
+
+                <label style={{ fontSize: "12px", color: "#666", marginBottom: "4px", display: "block", marginTop: "8px" }}>
+                  End Time: {fmtTime((get("profileSong") as any)?.endTime ?? Math.min(60, songDuration || 60))}
+                </label>
+                <input
+                  type="range"
+                  min={((get("profileSong") as any)?.startTime ?? 0) + 1}
+                  max={Math.min(((get("profileSong") as any)?.startTime ?? 0) + 60, songDuration || ((get("profileSong") as any)?.startTime ?? 0) + 60)}
+                  step="1"
+                  value={(get("profileSong") as any)?.endTime ?? Math.min(60, songDuration || 60)}
+                  onChange={(e) => {
+                    const start = (get("profileSong") as any)?.startTime ?? 0;
+                    const newEnd = Math.min(Number(e.target.value), start + 60);
+                    set({ profileSong: { ...((get("profileSong") as any) || {}), endTime: newEnd } });
+                  }}
+                  style={{ width: "100%", accentColor: "#cc0066" }}
+                />
+
+                <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: "11px", color: "#999" }}>Start (sec)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={songDuration > 0 ? songDuration - 1 : 9999}
+                      value={(get("profileSong") as any)?.startTime ?? 0}
+                      onChange={(e) => {
+                        const newStart = Math.max(0, Number(e.target.value));
+                        const curEnd = (get("profileSong") as any)?.endTime ?? newStart + 60;
+                        const newEnd = Math.min(curEnd, newStart + 60);
+                        set({ profileSong: { ...((get("profileSong") as any) || {}), startTime: newStart, endTime: Math.max(newEnd, newStart + 1) } });
+                      }}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: "11px", color: "#999" }}>End (sec)</label>
+                    <input
+                      type="number"
+                      min={((get("profileSong") as any)?.startTime ?? 0) + 1}
+                      max={((get("profileSong") as any)?.startTime ?? 0) + 60}
+                      value={(get("profileSong") as any)?.endTime ?? Math.min(60, songDuration || 60)}
+                      onChange={(e) => {
+                        const start = (get("profileSong") as any)?.startTime ?? 0;
+                        const newEnd = Math.min(Number(e.target.value), start + 60);
+                        set({ profileSong: { ...((get("profileSong") as any) || {}), endTime: Math.max(newEnd, start + 1) } });
+                      }}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-end" }}>
+                    <button type="button" onClick={previewSong} className="upload-btn" style={{ whiteSpace: "nowrap" }}>
+                      {previewPlaying ? "⏹ Stop" : "▶ Preview Clip"}
+                    </button>
+                  </div>
                 </div>
               </div>
-              <small style={{ color: "#cc0066" }}>
-                Clip length: {Math.max(0, (get("profileSong")?.endTime ?? 20) - (get("profileSong")?.startTime ?? 0))}s / max 20s
-              </small>
 
               <div className="music-section-header" style={{ marginTop: "18px" }}>🎶 Background Music</div>
               <small style={{ color: "#999", display: "block", marginBottom: "8px" }}>
